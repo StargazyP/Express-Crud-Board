@@ -8,12 +8,15 @@ const MongoClient = require('mongodb').MongoClient;
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const flash = require('connect-flash');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const multer = require('multer');
 const crypto = require('crypto');
+const fs = require('fs/promises');
 require('dotenv').config();
 const verificationCodes = new Map();
 // ========== 기본 설정 ==========
@@ -22,6 +25,47 @@ app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(flash());
+app.use(cookieParser());
+
+// ========== Rate limiting (auth/email sensitive routes) ==========
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const emailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ========== CSRF protection (simple double-submit via session) ==========
+function ensureCsrfToken(req, res, next) {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  }
+  return next();
+}
+
+function renderWithCsrf(view) {
+  return (req, res) => {
+    res.render(view, { csrfToken: req.session.csrfToken });
+  };
+}
+
+function requireCsrf(req, res, next) {
+  const token =
+    req.headers['x-csrf-token'] ||
+    req.headers['x-xsrf-token'] ||
+    (req.body && req.body._csrf);
+
+  if (!token || token !== req.session.csrfToken) {
+    return res.status(403).send('Invalid CSRF token');
+  }
+  return next();
+}
 
 // ========== 세션 설정 ==========
 app.use(session({
@@ -154,15 +198,38 @@ passport.deserializeUser((id, done) => {
   });
 })
 // ========== 라우팅 ==========
-app.get('/', (req, res) => res.render('login.ejs'));
-app.get('/login', (req, res) => res.render('login.ejs'));
-app.get('/signup', (req, res) => res.render('signup.ejs'));
+app.get('/', ensureCsrfToken, renderWithCsrf('login.ejs'));
+app.get('/login', ensureCsrfToken, renderWithCsrf('login.ejs'));
+app.get('/signup', ensureCsrfToken, renderWithCsrf('signup.ejs'));
 app.get('/main', (req, res) => res.render('index.ejs'));
-app.get('/edit', (req, res) => res.render('edit.ejs'));
-app.get('/reset-password', (req, res) => res.render('reset-password.ejs'));
-app.get('/findid', (req, res) => res.render('findid.ejs'));
+app.get('/reset-password', ensureCsrfToken, renderWithCsrf('reset-password.ejs'));
+app.get('/findid', ensureCsrfToken, renderWithCsrf('findid.ejs'));
+
+// 게시글 수정 (작성자만)
+app.get('/edit/:id', 로그인, ensureCsrfToken, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).send('잘못된 요청');
+  const user = req.session.user;
+  const post = await db.collection('post').findOne({ _id: id });
+  if (!post) return res.status(404).send('게시물을 찾을 수 없습니다.');
+  if (!user?.id || post.작성자_id !== user.id) return res.status(403).send('권한이 없습니다.');
+  return res.render('edit.ejs', { post, csrfToken: req.session.csrfToken });
+});
+app.post('/edit/:id', 로그인, requireCsrf, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).send('잘못된 요청');
+  const user = req.session.user;
+  if (!user?.id) return res.status(401).send('로그인이 필요합니다.');
+  const { title, content } = req.body || {};
+  const result = await db.collection('post').updateOne(
+    { _id: id, 작성자_id: user.id },
+    { $set: { 제목: title, 내용: content } }
+  );
+  if (!result?.matchedCount) return res.status(403).send('권한이 없습니다.');
+  return res.redirect('/detail/' + id);
+});
 // ========== 비밀번호 초기화 ================================
-app.post('/reset-password', async (req, res) => {
+app.post('/reset-password', requireCsrf, emailLimiter, async (req, res) => {
   const { email } = req.body;
   const user = await db.collection('login').findOne({ em: email });
 
@@ -187,7 +254,7 @@ app.post('/reset-password', async (req, res) => {
 });
 
 // ========== 인증코드 검증 ==================================
-app.post('/verify-code', (req, res) => {
+app.post('/verify-code', requireCsrf, authLimiter, (req, res) => {
   const { email, code } = req.body;
 
   const savedCode = verificationCodes.get(email);
@@ -200,7 +267,7 @@ app.post('/verify-code', (req, res) => {
 });
 
 // ========== 새 비밀번호 저장 ==================================
-app.post('/reset-password-new', async (req, res) => {
+app.post('/reset-password-new', requireCsrf, authLimiter, async (req, res) => {
   const { email, newPassword } = req.body;
 
   try {
@@ -221,7 +288,7 @@ app.post('/reset-password-new', async (req, res) => {
   }
 });
 // ========== 아이디 존재 확인 (이메일 없이 id 기반) ==========
-app.post('/findid', async (req, res) => {
+app.post('/findid', requireCsrf, authLimiter, async (req, res) => {
   const em = req.body.em; // 사용자가 입력한 이메일
 
   try {
@@ -239,7 +306,7 @@ app.post('/findid', async (req, res) => {
   }
 });
 // ========== 회원가입 ==========
-app.post('/signup', async (req, res) => {
+app.post('/signup', requireCsrf, authLimiter, async (req, res) => {
   const { id, pw, em, nm } = req.body;
   try {
     const exists = await db.collection('login').findOne({ id });
@@ -254,7 +321,7 @@ app.post('/signup', async (req, res) => {
 });
 
 // ========== 로그인 ==========
-app.post('/login', (req, res, next) => {
+app.post('/login', requireCsrf, authLimiter, (req, res, next) => {
   passport.authenticate('local', (err, user, info) => {
     if (err) {
       console.error(err);
@@ -303,16 +370,16 @@ app.get('/mypage', 로그인, (req, res) => {
 });
 
 // ========== 게시판 기능 ==========
-app.get('/list', 로그인, (req, res) => {
+app.get('/list', 로그인, ensureCsrfToken, (req, res) => {
   db.collection('post').find().toArray((err, result) => {
-    res.render('list.ejs', { posts: result, user: req.session.user });
+    res.render('list.ejs', { posts: result, user: req.session.user, csrfToken: req.session.csrfToken });
   });
 });
 
 // ========== 게시물 작성 페이지 핸들링 =============
-app.get('/write', 로그인, (req, res) => res.render('write.ejs'));
+app.get('/write', 로그인, ensureCsrfToken, renderWithCsrf('write.ejs'));
 // =========== 게시물 작성 핸들링 ===============
-app.post('/add', 로그인, (req, res) => {
+app.post('/add', 로그인, requireCsrf, (req, res) => {
   db.collection('counter').findOne({ name: '게시물갯수' }, (err, result) => {
     if (err) return res.json({ success: false });
     const now = new Date();
@@ -353,7 +420,7 @@ app.post('/add', 로그인, (req, res) => {
   });
 });
 /* ================== 3. 대댓글 작성 ================== */
-app.post('/comment/reply', async (req, res) => {
+app.post('/comment/reply', requireCsrf, async (req, res) => {
   try {
     const { postId, parentId, content } = req.body;
 
@@ -383,7 +450,7 @@ app.post('/comment/reply', async (req, res) => {
   }
 });
 // ================= 게시물 댓글 작성 ============================
-app.post('/comment/add', async (req, res) => {
+app.post('/comment/add', requireCsrf, async (req, res) => {
   try {
     const { postId, content } = req.body;
 
@@ -422,14 +489,14 @@ app.post('/comment/add', async (req, res) => {
 });
 
 // ================== 게시물 상세 페이지 핸들링 ===================
-app.get('/detail/:id', async (req, res) => {
+app.get('/detail/:id', 로그인, ensureCsrfToken, async (req, res) => {
   try {
     const postId = parseInt(req.params.id);
     const post = await db.collection('post').findOne({ _id: postId });
     if (!post) return res.status(404).send('게시물없음');
     const comments = await db.collection('comments').find({ postId }).sort({ _id: -1 }).toArray();
     res.render('detail.ejs', {
-      post, comments, user: req.session.user
+      post, comments, user: req.session.user, csrfToken: req.session.csrfToken
     });
   } catch (err) {
     console.log(err);
@@ -437,7 +504,21 @@ app.get('/detail/:id', async (req, res) => {
   }
 });
 // ================ 게시글 삭제 ======================
-app.delete('/delete', 로그인, (req, res) => {
+// detail.ejs는 form POST를 사용하므로 POST도 지원
+app.post('/delete', 로그인, requireCsrf, (req, res) => {
+  const id = parseInt(req.body._id);
+  if (!Number.isFinite(id)) return res.status(400).send('잘못된 요청');
+
+  const user = req.session.user;
+  if (!user?.id) return res.status(401).send('로그인이 필요합니다.');
+
+  db.collection('post').deleteOne({ _id: id, 작성자_id: user.id }, (err, result) => {
+    if (err) return res.status(500).send('서버 오류');
+    if (!result?.deletedCount) return res.status(403).send('권한이 없습니다.');
+    return res.redirect('/list');
+  });
+});
+app.delete('/delete', 로그인, requireCsrf, (req, res) => {
   const id = parseInt(req.body._id);
   if (!Number.isFinite(id)) return res.status(400).send('잘못된 요청');
 
@@ -452,7 +533,7 @@ app.delete('/delete', 로그인, (req, res) => {
   });
 });
 // ================ 게시글 좋아요 ====================
-app.post('/post/like', async (req, res) => {
+app.post('/post/like', requireCsrf, async (req, res) => {
   try {
     if (!req.session.user) return res.json({ success: false, message: '로그인이 필요합니다.' });
 
@@ -533,8 +614,36 @@ app.get('/message/:id', 로그인, (req, res) => {
 });
 
 // ========== 파일 업로드 ==========
-app.get('/upload', 로그인, (req, res) => res.render('upload.ejs'));
-app.post('/upload', 로그인, upload.array('uploading', 10), (req, res) => res.redirect('/'));
+app.get('/upload', 로그인, ensureCsrfToken, renderWithCsrf('upload.ejs'));
+app.post('/upload', 로그인, requireCsrf, (req, res, next) => {
+  upload.array('uploading', 10)(req, res, async (err) => {
+    if (err) return next(err);
+    try {
+      const files = Array.isArray(req.files) ? req.files : [];
+      const { fileTypeFromFile } = await import('file-type');
+
+      for (const f of files) {
+        const detected = await fileTypeFromFile(f.path);
+        const ok = detected && typeof detected.mime === 'string' && detected.mime.startsWith('image/');
+        if (!ok) {
+          await fs.unlink(f.path).catch(() => {});
+          return res.status(400).send('Invalid upload');
+        }
+      }
+      return res.redirect('/');
+    } catch (e) {
+      return next(e);
+    }
+  });
+});
+
+// CSRF error handler (kept for compatibility)
+app.use((err, req, res, next) => {
+  if (err && err.code === 'EBADCSRFTOKEN') {
+    return res.status(403).send('Invalid CSRF token');
+  }
+  return next(err);
+});
 
 // ========== Socket.io ==========
 app.get('/socket', 로그인, (req, res) => res.render('socket.ejs'));

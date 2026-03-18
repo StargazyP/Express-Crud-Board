@@ -82,6 +82,7 @@ PORT=3000
 - **Uploads**: Keep `public/image/` out of git. Validate file type/size (implemented) and consider virus scanning in production.
 - **Sessions**: Set a strong `SESSION_SECRET` and use a persistent session store in production (Redis/Mongo store).
 - **Authorization**: Ensure only authors can delete/edit content (delete route is restricted).
+- **CSRF & rate limiting**: CSRF tokens are required for state-changing requests, and auth/email routes are rate-limited.
 
 ## License
 
