@@ -15,6 +15,13 @@ A full-stack bulletin board web application built with **Node.js**, **Express**,
 - **Real-time chat** – 1:1 chat using Socket.io and Server-Sent Events.
 - **File uploads** – Upload up to 10 image files per request to `public/image/`.
 
+## Security hardening (recent updates)
+
+- **CSRF protection**: All state-changing requests require a CSRF token (`X-CSRF-Token` header for fetch/AJAX, or `_csrf` hidden input for HTML forms).
+- **Rate limiting**: Authentication and email/password-reset related endpoints are rate-limited to reduce brute-force and abuse.
+- **Authorization**: Only the author can edit or delete a post.
+- **Upload validation**: File uploads are restricted to images only (type/size limits + magic-byte verification). Files are stored with random names to avoid overwrites.
+
 ## Architecture
 
 - **Client (Web browser)**
