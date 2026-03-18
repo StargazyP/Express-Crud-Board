@@ -47,14 +47,14 @@ A full-stack bulletin board web application built with **Node.js**, **Express**,
 
 This repository includes a simple Docker Compose setup for local or demo use.
 
-- **MongoDB**: `mongo:7.0` (container `node_board_mongodb`, exposed on `27017`)
+- **MongoDB**: `mongo:7.0` (container `node_board_mongodb`, exposed on host `27018` → container `27017`)
 - **App**: Node.js app container (`node_board_app`), exposed on **http://localhost:3002** (host) → `3002:3000`.
 
 ### Quick start
 
 ```bash
-# 1. Create .env (see example below)
-cp .env.example .env   # if you have a template
+# 1. Create .env from template
+cp .env.example .env
 
 # 2. Build & start with Docker Compose
 cd Node.js_board
@@ -75,6 +75,13 @@ EMAIL_USER=your-email@example.com
 EMAIL_PASS=your-app-password
 PORT=3000
 ```
+
+## Open-source checklist (before publishing)
+
+- **Secrets**: Do not commit `.env`, SMTP credentials, or session secrets. Use `.env.example` only.
+- **Uploads**: Keep `public/image/` out of git. Validate file type/size (implemented) and consider virus scanning in production.
+- **Sessions**: Set a strong `SESSION_SECRET` and use a persistent session store in production (Redis/Mongo store).
+- **Authorization**: Ensure only authors can delete/edit content (delete route is restricted).
 
 ## License
 

@@ -13,6 +13,7 @@ const flash = require('connect-flash');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const multer = require('multer');
+const crypto = require('crypto');
 require('dotenv').config();
 const verificationCodes = new Map();
 // ========== 기본 설정 ==========
@@ -26,7 +27,12 @@ app.use(flash());
 app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-secret-key-in-production',
   resave: true,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+  },
 }));
 
 // ========== Passport 초기화 ==========
@@ -36,9 +42,24 @@ app.use(passport.session());
 // ========== 파일 업로드 설정 ==========
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, './public/image'),
-  filename: (req, file, cb) => cb(null, file.originalname)
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const safeExt = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? ext : '';
+    const name = crypto.randomBytes(16).toString('hex') + safeExt;
+    cb(null, name);
+  }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    files: 10,
+    fileSize: 5 * 1024 * 1024, // 5MB per file
+  },
+  fileFilter: (req, file, cb) => {
+    const ok = typeof file.mimetype === 'string' && file.mimetype.startsWith('image/');
+    cb(ok ? null : new Error('Only image uploads are allowed'), ok);
+  },
+});
 
 // ========== 로그인 확인 미들웨어 ==========
 function 로그인(req, res, next) {
@@ -76,7 +97,6 @@ passport.use(new LocalStrategy({
 
   console.log(" [DEBUG] LocalStrategy 호출됨");
   console.log(" 입력받은 ID:", id);
-  console.log(" 입력받은 PW:", pw);
 
   db.collection('login').findOne({ id }, async (err, user) => {
 
@@ -92,7 +112,7 @@ passport.use(new LocalStrategy({
       return done(null, false, { message: '존재하지 않는 아이디입니다.' });
     }
 
-    console.log("[DEBUG] DB 조회 성공, user:", user);
+    console.log("[DEBUG] DB 조회 성공");
 
     // 비밀번호 비교
     try {
@@ -301,9 +321,12 @@ app.post('/add', 로그인, (req, res) => {
     // 포맷팅
     const formattedDate = kstDate.toISOString().slice(0, 19).replace('T', ' ');
 
-    const 총게시물갯수 = result.toTalPost;
+    // 로컬/신규 DB에서는 counter 문서가 없을 수 있음 → 없으면 0부터 시작
+    const 총게시물갯수 = (result && typeof result.toTalPost === 'number') ? result.toTalPost : 0;
+    const nextId = 총게시물갯수 + 1;
+
     const 저장할거 = {
-      _id: 총게시물갯수 + 1,
+      _id: nextId,
       제목: req.body.title,
       내용: req.body.content,
       작성자: req.session.user.nm,
@@ -311,13 +334,15 @@ app.post('/add', 로그인, (req, res) => {
       날짜: formattedDate // 여기서 날짜와 시간 저장
     };
 
-    db.collection('post').insertOne(저장할거, (err, result) => {
+    db.collection('post').insertOne(저장할거, (err) => {
       if (err) return res.json({ success: false });
 
+      // counter 문서가 없으면 생성하고 증가 (upsert)
       db.collection('counter').updateOne(
         { name: '게시물갯수' },
         { $inc: { toTalPost: 1 } },
-        (err, result) => {
+        { upsert: true },
+        (err) => {
           if (err) return res.json({ success: false });
 
           // JSON으로 성공 메시지 전달
@@ -413,8 +438,18 @@ app.get('/detail/:id', async (req, res) => {
 });
 // ================ 게시글 삭제 ======================
 app.delete('/delete', 로그인, (req, res) => {
-  req.body._id = parseInt(req.body._id);
-  db.collection('post').deleteOne(req.body, () => res.send('삭제완료'));
+  const id = parseInt(req.body._id);
+  if (!Number.isFinite(id)) return res.status(400).send('잘못된 요청');
+
+  const user = req.session.user;
+  if (!user?.id) return res.status(401).send('로그인이 필요합니다.');
+
+  // 작성자만 삭제 가능하도록 제한
+  db.collection('post').deleteOne({ _id: id, 작성자_id: user.id }, (err, result) => {
+    if (err) return res.status(500).send('서버 오류');
+    if (!result?.deletedCount) return res.status(403).send('권한이 없습니다.');
+    return res.send('삭제완료');
+  });
 });
 // ================ 게시글 좋아요 ====================
 app.post('/post/like', async (req, res) => {
