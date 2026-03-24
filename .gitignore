@@ -90,3 +90,9 @@ public/image/*
 tmp/
 temp/
 *.tmp
+
+# Internal documentation (do not publish)
+docs/ARCHITECTURE_INTERNAL.md
+docs/SCENARIO_INTERNAL.md
+docs/scenario-flow-internal.png
+docs/scenario-flow-internal-ko.png

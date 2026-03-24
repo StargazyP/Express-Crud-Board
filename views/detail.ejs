@@ -88,6 +88,19 @@
       <%= post.내용 %>
     </div>
 
+    <% if (post.images && post.images.length > 0) { %>
+      <div class="mt-4">
+        <div class="fw-semibold mb-2">첨부 이미지</div>
+        <div class="d-flex flex-wrap gap-2">
+          <% post.images.forEach(function(img) { %>
+            <a href="/image/<%= img %>" target="_blank" rel="noopener noreferrer">
+              <img src="/image/<%= img %>" alt="attachment" style="max-width: 180px; max-height: 180px; object-fit: cover; border-radius: 12px; border: 1px solid #eee;">
+            </a>
+          <% }) %>
+        </div>
+      </div>
+    <% } %>
+
     <div class="mt-4 d-flex justify-content-between">
       <a href="/list" class="btn btn-modern">← 목록으로</a>
       <div class="text-end mb-3">

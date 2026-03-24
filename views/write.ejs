@@ -90,6 +90,11 @@
         <textarea id="content" name="content" required></textarea>
       </div>
 
+      <div class="form-group">
+        <label for="images">이미지 첨부 (최대 10개)</label>
+        <input type="file" id="images" name="images" accept="image/*" multiple>
+      </div>
+
       <div class="d-flex justify-content-end">
         <button type="submit" class="btn-submit">작성 완료</button>
       </div>
@@ -101,15 +106,12 @@
     document.getElementById('postForm').addEventListener('submit', function (event) {
       event.preventDefault();
 
-      const title = document.getElementById('title').value;
-      const content = document.getElementById('content').value;
-
-      const postData = { title, content };
-
+      const form = document.getElementById('postForm');
+      const formData = new FormData(form);
       fetch('/add', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-        body: JSON.stringify(postData)
+        headers: { 'X-CSRF-Token': csrfToken },
+        body: formData
       })
       .then(response => response.json())
       .then(data => {

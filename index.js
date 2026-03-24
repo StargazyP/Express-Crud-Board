@@ -105,6 +105,22 @@ const upload = multer({
   },
 });
 
+async function validateUploadedImages(files) {
+  const { fileTypeFromFile } = await import('file-type');
+  const safe = [];
+
+  for (const f of files) {
+    const detected = await fileTypeFromFile(f.path);
+    const ok = detected && typeof detected.mime === 'string' && detected.mime.startsWith('image/');
+    if (!ok) {
+      await fs.unlink(f.path).catch(() => {});
+      throw new Error('Invalid upload');
+    }
+    safe.push(f);
+  }
+  return safe;
+}
+
 // ========== 로그인 확인 미들웨어 ==========
 function 로그인(req, res, next) {
   if (req.isAuthenticated?.() || req.session.user) {
@@ -379,8 +395,13 @@ app.get('/list', 로그인, ensureCsrfToken, (req, res) => {
 // ========== 게시물 작성 페이지 핸들링 =============
 app.get('/write', 로그인, ensureCsrfToken, renderWithCsrf('write.ejs'));
 // =========== 게시물 작성 핸들링 ===============
-app.post('/add', 로그인, requireCsrf, (req, res) => {
-  db.collection('counter').findOne({ name: '게시물갯수' }, (err, result) => {
+app.post('/add', 로그인, requireCsrf, upload.array('images', 10), async (req, res) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    const safeFiles = await validateUploadedImages(files);
+    const imageNames = safeFiles.map(f => f.filename);
+
+    db.collection('counter').findOne({ name: '게시물갯수' }, (err, result) => {
     if (err) return res.json({ success: false });
     const now = new Date();
     const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -398,7 +419,8 @@ app.post('/add', 로그인, requireCsrf, (req, res) => {
       내용: req.body.content,
       작성자: req.session.user.nm,
       작성자_id: req.session.user.id,
-      날짜: formattedDate // 여기서 날짜와 시간 저장
+      날짜: formattedDate, // 여기서 날짜와 시간 저장
+      images: imageNames
     };
 
     db.collection('post').insertOne(저장할거, (err) => {
@@ -417,7 +439,10 @@ app.post('/add', 로그인, requireCsrf, (req, res) => {
         }
       );
     });
-  });
+    });
+  } catch (e) {
+    return res.status(400).json({ success: false, message: 'Invalid upload' });
+  }
 });
 /* ================== 3. 대댓글 작성 ================== */
 app.post('/comment/reply', requireCsrf, async (req, res) => {
