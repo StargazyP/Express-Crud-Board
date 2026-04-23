@@ -1,144 +1,85 @@
-const express = require('express');
+const express = require("express");
 const app = express();
-const http = require('http').createServer(app);
+const http = require("http").createServer(app);
 const { Server } = require("socket.io");
 const io = new Server(http);
-const bodyParser = require('body-parser');
-const MongoClient = require('mongodb').MongoClient;
-const passport = require('passport');
-const LocalStrategy = require('passport-local').Strategy;
-const session = require('express-session');
-const cookieParser = require('cookie-parser');
-const rateLimit = require('express-rate-limit');
-const bcrypt = require('bcrypt');
-const flash = require('connect-flash');
-const nodemailer = require('nodemailer');
-const path = require('path');
-const multer = require('multer');
-const crypto = require('crypto');
-const fs = require('fs/promises');
-require('dotenv').config();
+const bodyParser = require("body-parser");
+const passport = require("passport");
+const session = require("express-session");
+const cookieParser = require("cookie-parser");
+const flash = require("connect-flash");
+const nodemailer = require("nodemailer");
+const path = require("path");
+const bcrypt = require("bcrypt");
+const fs = require("fs/promises");
+require("dotenv").config();
+
+const { BASE_PATH, absUrl } = require("./lib/config");
+const { authLimiter, emailLimiter } = require("./lib/limiters");
+const {
+  ensureCsrfToken,
+  renderWithCsrf,
+  requireCsrf,
+  requireLogin,
+} = require("./lib/security");
+const { upload, validateUploadedImages } = require("./lib/upload");
+const { connectMongo } = require("./lib/db");
+const { configurePassport } = require("./lib/passport");
+
 const verificationCodes = new Map();
-// ========== 기본 설정 ==========
-app.use(express.static(path.join(__dirname, 'public')));
-app.set('view engine', 'ejs');
+
+if (BASE_PATH) {
+  app.use((req, _res, next) => {
+    const url = req.url || "";
+    if (
+      url === BASE_PATH ||
+      url.startsWith(`${BASE_PATH}/`) ||
+      url.startsWith(`${BASE_PATH}?`)
+    ) {
+      req.url = url.slice(BASE_PATH.length) || "/";
+    }
+    next();
+  });
+}
+
+app.set("trust proxy", 1);
+app.locals.basePath = BASE_PATH;
+app.use(express.static(path.join(__dirname, "public")));
+app.set("view engine", "ejs");
 app.use(express.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(flash());
 app.use(cookieParser());
 
-// ========== Rate limiting (auth/email sensitive routes) ==========
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-const emailLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "change-this-secret-key-in-production",
+    resave: true,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: BASE_PATH || "/",
+    },
+  })
+);
 
-// ========== CSRF protection (simple double-submit via session) ==========
-function ensureCsrfToken(req, res, next) {
-  if (!req.session.csrfToken) {
-    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
-  }
-  return next();
-}
-
-function renderWithCsrf(view) {
-  return (req, res) => {
-    res.render(view, { csrfToken: req.session.csrfToken });
-  };
-}
-
-function requireCsrf(req, res, next) {
-  const token =
-    req.headers['x-csrf-token'] ||
-    req.headers['x-xsrf-token'] ||
-    (req.body && req.body._csrf);
-
-  if (!token || token !== req.session.csrfToken) {
-    return res.status(403).send('Invalid CSRF token');
-  }
-  return next();
-}
-
-// ========== 세션 설정 ==========
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'change-this-secret-key-in-production',
-  resave: true,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-  },
-}));
-
-// ========== Passport 초기화 ==========
 app.use(passport.initialize());
 app.use(passport.session());
 
-// ========== 파일 업로드 설정 ==========
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, './public/image'),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    const safeExt = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? ext : '';
-    const name = crypto.randomBytes(16).toString('hex') + safeExt;
-    cb(null, name);
-  }
-});
-const upload = multer({
-  storage,
-  limits: {
-    files: 10,
-    fileSize: 5 * 1024 * 1024, // 5MB per file
-  },
-  fileFilter: (req, file, cb) => {
-    const ok = typeof file.mimetype === 'string' && file.mimetype.startsWith('image/');
-    cb(ok ? null : new Error('Only image uploads are allowed'), ok);
-  },
-});
-
-async function validateUploadedImages(files) {
-  const { fileTypeFromFile } = await import('file-type');
-  const safe = [];
-
-  for (const f of files) {
-    const detected = await fileTypeFromFile(f.path);
-    const ok = detected && typeof detected.mime === 'string' && detected.mime.startsWith('image/');
-    if (!ok) {
-      await fs.unlink(f.path).catch(() => {});
-      throw new Error('Invalid upload');
-    }
-    safe.push(f);
-  }
-  return safe;
-}
-
-// ========== 로그인 확인 미들웨어 ==========
-function 로그인(req, res, next) {
-  if (req.isAuthenticated?.() || req.session.user) {
-    return next(); // 로그인되어 있으면 다음으로
-  }
-  console.log('⛔ 로그인되지 않은 접근');
-  req.flash('error', '로그인이 필요합니다.');
-  return res.redirect('/login'); // 로그인 페이지로 이동
-}
-
-// ========== MongoDB 연결 ==========
 let db;
-MongoClient.connect(process.env.DB_URL, { useUnifiedTopology: true }, (err, client) => {
-  if (err) return console.log(err);
-  db = client.db('server');
-  console.log('MongoDB Connected');
-});
-// ===== 이메일 전송 설정 =====
+connectMongo(process.env.DB_URL, "server")
+  .then((connected) => {
+    db = connected;
+    console.log("MongoDB Connected");
+  })
+  .catch((err) => console.log(err));
+
+configurePassport(passport, () => db);
+
+const 로그인 = requireLogin(absUrl);
+
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST || 'smtp.naver.com',
   port: parseInt(process.env.EMAIL_PORT) || 465,
@@ -148,71 +89,6 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASS
   }
 });
-// ========== Passport LocalStrategy (Debug Logging Added) ==========
-passport.use(new LocalStrategy({
-  usernameField: 'id',
-  passwordField: 'pw',
-  session: true
-}, (id, pw, done) => {
-
-  console.log(" [DEBUG] LocalStrategy 호출됨");
-  console.log(" 입력받은 ID:", id);
-
-  db.collection('login').findOne({ id }, async (err, user) => {
-
-    console.log(" [DEBUG] DB에서 조회 시도: id =", id);
-
-    if (err) {
-      console.log(" [DEBUG] DB 조회 중 오류 발생:", err);
-      return done(err);
-    }
-
-    if (!user) {
-      console.log(" [DEBUG] 아이디 없음:", id);
-      return done(null, false, { message: '존재하지 않는 아이디입니다.' });
-    }
-
-    console.log("[DEBUG] DB 조회 성공");
-
-    // 비밀번호 비교
-    try {
-      const match = await bcrypt.compare(pw, user.pw);
-      console.log("[DEBUG] 비밀번호 비교 결과:", match);
-
-      if (match) {
-        console.log("[DEBUG] 로그인 성공:", user.id);
-        return done(null, user);
-      } else {
-        console.log("[DEBUG] 비밀번호 불일치");
-        return done(null, false, { message: '비밀번호가 일치하지 않습니다.' });
-      }
-    } catch (error) {
-      console.log("[DEBUG] 비밀번호 비교 중 오류:", error);
-      return done(error);
-    }
-  });
-}));
-// ========== serializeUser ==========
-passport.serializeUser((user, done) => {
-  console.log("[DEBUG] serializeUser 실행됨");
-  console.log("저장할 user.id:", user.id);
-  done(null, user.id);
-});
-
-
-// ========== deserializeUser ==========
-passport.deserializeUser((id, done) => {
-  console.log("[DEBUG] deserializeUser 실행됨 - 찾는 ID:", id);
-
-  db.collection('login').findOne({ id }, (err, user) => {
-    if (err) {
-      console.log("[DEBUG] deserializeUser DB 에러:", err);
-      return done(err);
-    }
-    console.log("[DEBUG] deserializeUser 조회된 user:", user);
-    done(err, user);
-  });
-})
 // ========== 라우팅 ==========
 app.get('/', ensureCsrfToken, renderWithCsrf('login.ejs'));
 app.get('/login', ensureCsrfToken, renderWithCsrf('login.ejs'));
@@ -242,7 +118,7 @@ app.post('/edit/:id', 로그인, requireCsrf, async (req, res) => {
     { $set: { 제목: title, 내용: content } }
   );
   if (!result?.matchedCount) return res.status(403).send('권한이 없습니다.');
-  return res.redirect('/detail/' + id);
+    return res.redirect(absUrl('/detail/' + id));
 });
 // ========== 비밀번호 초기화 ================================
 app.post('/reset-password', requireCsrf, emailLimiter, async (req, res) => {
@@ -329,7 +205,7 @@ app.post('/signup', requireCsrf, authLimiter, async (req, res) => {
     if (exists) return res.send('이미 사용 중인 아이디입니다.');
     const hashed = await bcrypt.hash(pw, 10);
     await db.collection('login').insertOne({ id, pw: hashed, em, nm });
-    res.redirect('/login');
+    res.redirect(absUrl('/login'));
   } catch (e) {
     console.error(e);
     res.status(500).send('회원가입 실패');
@@ -346,7 +222,7 @@ app.post('/login', requireCsrf, authLimiter, (req, res, next) => {
 
     if (!user) {
       // 로그인 실패
-      return res.redirect('/login?error=1');
+      return res.redirect(absUrl('/login?error=1'));
     }
 
     // 로그인 성공 → 세션에 저장
@@ -359,7 +235,7 @@ app.post('/login', requireCsrf, authLimiter, (req, res, next) => {
       };
 
       console.log('로그인 성공', req.session.user);
-      return res.redirect('/list');
+      return res.redirect(absUrl('/list'));
     });
   })(req, res, next);
 });
@@ -371,11 +247,11 @@ app.get('/logout', (req, res, next) => {
     req.logout(err => {
       if (err) return next(err);
       req.session.destroy();
-      res.redirect('/login');
+      res.redirect(absUrl('/login'));
     });
   } else {
     req.session.destroy();
-    res.redirect('/login');
+    res.redirect(absUrl('/login'));
   }
 });
 
@@ -435,7 +311,7 @@ app.post('/add', 로그인, requireCsrf, upload.array('images', 10), async (req,
           if (err) return res.json({ success: false });
 
           // JSON으로 성공 메시지 전달
-          res.json({ success: true, redirect: '/list' });
+          res.json({ success: true, redirect: absUrl('/list') });
         }
       );
     });
@@ -540,7 +416,7 @@ app.post('/delete', 로그인, requireCsrf, (req, res) => {
   db.collection('post').deleteOne({ _id: id, 작성자_id: user.id }, (err, result) => {
     if (err) return res.status(500).send('서버 오류');
     if (!result?.deletedCount) return res.status(403).send('권한이 없습니다.');
-    return res.redirect('/list');
+    return res.redirect(absUrl('/list'));
   });
 });
 app.delete('/delete', 로그인, requireCsrf, (req, res) => {
@@ -655,11 +531,15 @@ app.post('/upload', 로그인, requireCsrf, (req, res, next) => {
           return res.status(400).send('Invalid upload');
         }
       }
-      return res.redirect('/');
+      return res.redirect(absUrl('/'));
     } catch (e) {
       return next(e);
     }
   });
+});
+
+app.get('/healthz', (req, res) => {
+  res.status(200).type('text/plain').send('ok');
 });
 
 // CSRF error handler (kept for compatibility)
