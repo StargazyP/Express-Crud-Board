@@ -119,17 +119,17 @@
   <!-- ✅ 상단 네비게이션 -->
   <nav class="navbar navbar-expand-lg navbar-custom fixed-top">
     <div class="container">
-      <a class="navbar-brand" href="/">MyBoard</a>
+      <a class="navbar-brand" href="<%= basePath %>/">MyBoard</a>
       <div class="collapse navbar-collapse justify-content-end">
         <ul class="navbar-nav">
           <li class="nav-item">
-            <a class="nav-link" href="/logout">로그아웃</a>
+            <a class="nav-link" href="<%= basePath %>/logout">로그아웃</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link" href="/mypage">내 정보</a>
+            <a class="nav-link" href="<%= basePath %>/mypage">내 정보</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link" href="/socket">채팅방</a>
+            <a class="nav-link" href="<%= basePath %>/socket">채팅방</a>
           </li>
         </ul>
       </div>
@@ -152,7 +152,7 @@
   </thead>
   <tbody id="boardList">
     <% for (const post of posts) { %>
-      <tr class="clickable-row" data-href="/detail/<%= post._id %>">
+      <tr class="clickable-row" data-href="<%= basePath %>/detail/<%= post._id %>">
         <td><%= post.제목 %></td>
         <td><%= post.작성자 || '익명' %></td>
         <td><%= post.내용 %></td>
@@ -205,6 +205,7 @@
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
   <script>
+    const basePath = '<%= basePath %>';
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     document.querySelectorAll('.clickable-row').forEach(row => {
       row.addEventListener('click', function (e) {
@@ -218,7 +219,7 @@
       const id = $(this).data('id');
       $.ajax({
         method: 'DELETE',
-        url: '/delete',
+        url: basePath + '/delete',
         data: { _id: id },
         headers: { 'X-CSRF-Token': csrfToken }
       }).done(() => {
@@ -229,7 +230,7 @@
     // 수정 버튼
     $('.edit-btn').click(function () {
       const id = $(this).data('id');
-      window.location.href = '/edit/' + id;
+      window.location.href = basePath + '/edit/' + id;
     });
 
     // 게시물 작성 폼
@@ -241,7 +242,7 @@
 
       const form = document.getElementById('postForm');
       const formData = new FormData(form);
-      fetch('/add', {
+      fetch(basePath + '/add', {
         method: 'POST',
         headers: { 'X-CSRF-Token': csrfToken },
         body: formData

@@ -68,6 +68,7 @@
         </div>
         <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
         <script>
+             var basePath = '<%= basePath %>';
              var 지금누른채팅방id;
              var eventSource;
             $('.list-group-item').click(function(){
@@ -76,7 +77,7 @@
                 if(eventSource != undefined){
                     eventSource.close();
                 }
-                eventSource = new EventSource('/message/' + 지금누른채팅방id);
+                eventSource = new EventSource(basePath + '/message/' + 지금누른채팅방id);
                 eventSource.addEventListener('test', function(e){
                     var 가져온거 = JSON.parse(e.data);
                     가져온거.forEach((i)=>{
@@ -91,7 +92,7 @@
                     parent : 지금누른채팅방id,
                     content : 채팅내용,
                 }
-                $.post('/message', 보낼거).then((a)=>{
+                $.post(basePath + '/message', 보낼거).then((a)=>{
                     console.log(a)
                 });
             });

@@ -25,10 +25,26 @@
     "mongoose": "^7.1.0",
     "multer": "^2.1.1",
     "node.js": "^0.0.1-security",
-    "nodemailer": "^7.0.12",
+    "nodemailer": "~8.0.4",
     "nodemon": "^3.1.11",
     "passport": "^0.6.0",
     "passport-local": "^1.0.0",
     "socket.io": "^4.8.3"
+  },
+  "overrides": {
+    "express": {
+      "path-to-regexp": "0.1.13"
+    },
+    "express-rate-limit": {
+      "ip-address": "10.1.1"
+    },
+    "nodemon": {
+      "minimatch": {
+        "brace-expansion": "5.0.5"
+      }
+    },
+    "socks": {
+      "ip-address": "10.1.1"
+    }
   }
 }

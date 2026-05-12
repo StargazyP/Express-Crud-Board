@@ -37,7 +37,7 @@
     <script>
       $('#search').click(function(){
         var input = $('#search-input').val();
-        window.location.replace('/search?value=' + input)
+        window.location.replace('<%= basePath %>/search?value=' + encodeURIComponent(input))
       });
       
     </script>

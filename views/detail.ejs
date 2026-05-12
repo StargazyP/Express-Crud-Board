@@ -93,8 +93,8 @@
         <div class="fw-semibold mb-2">첨부 이미지</div>
         <div class="d-flex flex-wrap gap-2">
           <% post.images.forEach(function(img) { %>
-            <a href="/image/<%= img %>" target="_blank" rel="noopener noreferrer">
-              <img src="/image/<%= img %>" alt="attachment" style="max-width: 180px; max-height: 180px; object-fit: cover; border-radius: 12px; border: 1px solid #eee;">
+            <a href="<%= basePath %>/image/<%= img %>" target="_blank" rel="noopener noreferrer">
+              <img src="<%= basePath %>/image/<%= img %>" alt="attachment" style="max-width: 180px; max-height: 180px; object-fit: cover; border-radius: 12px; border: 1px solid #eee;">
             </a>
           <% }) %>
         </div>
@@ -102,7 +102,7 @@
     <% } %>
 
     <div class="mt-4 d-flex justify-content-between">
-      <a href="/list" class="btn btn-modern">← 목록으로</a>
+      <a href="<%= basePath %>/list" class="btn btn-modern">← 목록으로</a>
       <div class="text-end mb-3">
         <button class="btn btn-modern" data-bs-toggle="collapse" data-bs-target="#commentFormArea">
           댓글 작성
@@ -111,8 +111,8 @@
 
       <% if (user && user.nm===post.작성자) { %>
         <div>
-          <a href="/edit/<%= post._id %>" class="btn btn-outline-primary btn-sm">수정</a>
-          <form action="/delete" method="POST" class="d-inline">
+          <a href="<%= basePath %>/edit/<%= post._id %>" class="btn btn-outline-primary btn-sm">수정</a>
+          <form action="<%= basePath %>/delete" method="POST" class="d-inline">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input type="hidden" name="_id" value="<%= post._id %>">
             <button type="submit" class="btn btn-outline-danger btn-sm">삭제</button>
@@ -166,13 +166,14 @@
 </body>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+  const basePath = '<%= basePath %>';
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
   document.getElementById('commentForm').addEventListener('submit', function (event) {
     event.preventDefault();
 
     const content = document.getElementById('commentContent').value;
 
-    fetch('/comment/add', {
+    fetch(basePath + '/comment/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
       body: JSON.stringify({

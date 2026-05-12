@@ -99,6 +99,7 @@
   </div>
 
 <script>
+  const basePath = '<%= basePath %>';
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
   // Enter로 제출 가능
   document.getElementById('em').addEventListener('keydown', function (e) {
@@ -119,7 +120,7 @@
     }
 
     try {
-      const res = await fetch('/findid', {
+      const res = await fetch(basePath + '/findid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
         body: JSON.stringify({ em })
@@ -133,10 +134,10 @@
 
         alert(`✅ 입력하신 이메일 "${em}" 에 해당하는 아이디 목록:\n\n${idList}`);
 
-        window.location.href = '/login';
+        window.location.href = basePath + '/login';
       } else {
         alert('❌ 해당 이메일로 등록된 아이디가 없습니다.');
-        window.location.href = '/login';
+        window.location.href = basePath + '/login';
       }
     } catch (err) {
       alert('⚠️ 서버 오류가 발생했습니다.');

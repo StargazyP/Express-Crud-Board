@@ -102,13 +102,14 @@
   </div>
 
   <script>
+    const basePath = '<%= basePath %>';
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     document.getElementById('postForm').addEventListener('submit', function (event) {
       event.preventDefault();
 
       const form = document.getElementById('postForm');
       const formData = new FormData(form);
-      fetch('/add', {
+      fetch(basePath + '/add', {
         method: 'POST',
         headers: { 'X-CSRF-Token': csrfToken },
         body: formData
