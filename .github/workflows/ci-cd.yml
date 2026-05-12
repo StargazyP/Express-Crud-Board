@@ -1,0 +1,89 @@
+name: Node Board CI/CD
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+
+jobs:
+  validate:
+    name: Validate and Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Syntax check
+        run: |
+          node --check index.js
+          if [ -d lib ]; then
+            find lib -name '*.js' -print0 | xargs -0 -r -n1 node --check
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          tags: node-board:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy via Webhook
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+      - name: Call deployment webhook
+        env:
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEBHOOK_SECRET}" ]; then
+            echo "WEBHOOK_SECRET repository secret is required."
+            exit 1
+          fi
+
+          url="${WEBHOOK_URL:-}"
+          if [ -z "${url}" ]; then
+            if [ -z "${SSH_HOST}" ]; then
+              echo "Set WEBHOOK_URL or SSH_HOST repository secret."
+              exit 1
+            fi
+            url="http://${SSH_HOST}:3000/webhook"
+          fi
+
+          payload='{"ref":"${{ github.ref }}","head_commit":{"id":"${{ github.sha }}"},"repository":{"full_name":"${{ github.repository }}","name":"${{ github.event.repository.name }}"}}'
+          signature="sha256=$(printf '%s' "${payload}" | openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" -hex | awk '{print $2}')"
+
+          curl -fsS -X POST "${url}" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -H "X-Hub-Signature-256: ${signature}" \
+            -d "${payload}" \
+            --max-time 60 \
+            --connect-timeout 10
