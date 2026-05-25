@@ -4,7 +4,7 @@ A full-stack bulletin board web application built with **Node.js**, **Express**,
 
 ## DEMO
 
-- **Live URL**: ([Add your public URL here if deployed](https://jangdonggun.duckdns.org/node/))
+- **Live URL**: ([Demo Link](https://jangdonggun.duckdns.org/node/))
 - Features: sign up / sign in, create and manage posts, comment and reply, upload images, and chat in real time.
 
 ## Features
