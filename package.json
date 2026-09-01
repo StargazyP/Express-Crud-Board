@@ -11,7 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "bcrypt": "^6.0.0",
-    "body-parser": "^1.20.2",
+    "body-parser": "^1.20.6",
     "connect-flash": "^0.1.1",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.0.3",
@@ -22,10 +22,10 @@
     "file-type": "^21.3.3",
     "minimatch": "^9.0.5",
     "mongodb": "^3.6.4",
-    "mongoose": "^7.1.0",
-    "multer": "^2.1.1",
+    "mongoose": "^7.8.10",
+    "multer": "^2.2.0",
     "node.js": "^0.0.1-security",
-    "nodemailer": "~8.0.4",
+    "nodemailer": "~9.1.0",
     "nodemon": "^3.1.11",
     "passport": "^0.6.0",
     "passport-local": "^1.0.0",
@@ -36,15 +36,20 @@
       "path-to-regexp": "0.1.13"
     },
     "express-rate-limit": {
-      "ip-address": "10.1.1"
+      "ip-address": "10.7.0"
     },
     "nodemon": {
       "minimatch": {
-        "brace-expansion": "5.0.5"
+        "brace-expansion": "5.0.9"
       }
     },
     "socks": {
-      "ip-address": "10.1.1"
-    }
+      "ip-address": "10.7.0"
+    },
+    "brace-expansion": "5.0.9",
+    "qs": "6.15.2",
+    "ws": "8.21.3",
+    "engine.io": "6.6.9",
+    "socket.io-parser": "4.2.7"
   }
 }
